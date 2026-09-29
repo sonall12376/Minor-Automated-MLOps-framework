@@ -1,28 +1,99 @@
+from pathlib import Path
+
 import pandas as pd
 
 
-def load_data(file_path):
-    """Load dataset from CSV."""
-    return pd.read_csv(file_path)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+DATA_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "raw"
+    / "india_weather_rainfall_data.xlsx"
+)
+
+OUTPUT_PATH = (
+    PROJECT_ROOT
+    / "data"
+    / "processed"
+)
+
+OUTPUT_PATH.mkdir(
+    parents=True,
+    exist_ok=True
+)
 
 
-def preprocess_data(df):
-    """Basic preprocessing pipeline."""
+def load_dataset():
+
+    return pd.read_excel(DATA_PATH)
+
+
+def preprocess(df):
+
     df = df.copy()
 
-    # Remove duplicate rows
-    df = df.drop_duplicates()
+    df["date_of_record"] = pd.to_datetime(
+        df["date_of_record"]
+    )
 
-    # Handle missing numerical values
-    numerical_columns = df.select_dtypes(
-        include=["int64", "float64"]
-    ).columns
+    df = df.sort_values(
+        ["station_name", "date_of_record"]
+    )
 
-    for column in numerical_columns:
-        df[column] = df[column].fillna(df[column].median())
+    df["RainTomorrow"] = (
+        df.groupby("station_name")["rainfall"]
+        .shift(-1)
+    )
+
+    df["RainTomorrow"] = (
+        df["RainTomorrow"] >= 1.0
+    ).astype(int)
+
+    df = df.dropna().reset_index(drop=True)
 
     return df
 
 
+def save_dataset(df):
+
+    output_path = (
+        OUTPUT_PATH
+        / "weather_preprocessed.csv"
+    )
+
+    df.to_csv(
+        output_path,
+        index=False
+    )
+
+    return output_path
+
+
 if __name__ == "__main__":
-    print("Preprocessing module loaded successfully.")
+
+    dataset = load_dataset()
+
+    processed_dataset = preprocess(
+        dataset
+    )
+
+    path = save_dataset(
+        processed_dataset
+    )
+
+    print()
+
+    print("===================================")
+    print("Preprocessing Completed")
+    print("===================================")
+
+    print(path)
+
+    print()
+
+    print(processed_dataset.head())
+
+    print()
+
+    print(processed_dataset.shape)
