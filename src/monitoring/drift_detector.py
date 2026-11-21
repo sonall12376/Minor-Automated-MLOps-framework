@@ -4,6 +4,7 @@ import json
 import pandas as pd
 
 
+
 from drift_metrics import (
     calculate_psi,
     calculate_ks_test,
@@ -12,6 +13,7 @@ from drift_metrics import (
 )
 
 from evidently_report import generate_report
+from decision_engine import make_decision
 
 
 
@@ -59,11 +61,55 @@ def load_latest_batch():
         files[-1]
     )
 
+def load_evidently_results():
 
-def detect_drift(
-    baseline,
-    production
-):
+    json_path = (
+        PROJECT_ROOT
+        / "artifacts"
+        / "evidently"
+        / "evidently_results.json"
+    )
+
+    with open(
+        json_path,
+        "r",
+        encoding="utf-8"
+    ) as file:
+        data = json.load(file)
+
+    for metric in data.get("metrics", []):
+
+        if metric.get("metric_name", "").startswith(
+            "DriftedColumnsCount("
+        ):
+            value = metric["value"]
+
+            drifted_count = int(value["count"])
+            drift_share = float(value["share"])
+
+            if not 0 <= drift_share <= 1:
+                raise ValueError("Invalid Evidently drift share")
+
+            threshold = float(
+                metric.get("config", {}).get(
+                    "drift_share", 0.5
+                )
+            )
+
+            return {
+                "drifted_features": drifted_count,
+                "drift_percentage": round(
+                    drift_share * 100, 2
+                ),
+                "dataset_drift": drift_share >= threshold
+            }
+
+    raise ValueError(
+        "DriftedColumnsCount metric not found in Evidently JSON"
+    )
+
+
+def detect_drift(baseline, production):
 
     feature_report = {}
 
@@ -77,6 +123,9 @@ def detect_drift(
         if column != "RainTomorrow"
     ]
 
+    if not numerical_columns:
+        raise ValueError("No numerical features found")
+
     for column in numerical_columns:
 
         psi = calculate_psi(
@@ -89,99 +138,91 @@ def detect_drift(
             production[column]
         )
 
-        severity = get_drift_severity(
-            psi
-        )
-
-        recommendation = get_recommendation(
-            psi,
-            ks_pvalue
-        )
+        severity = get_drift_severity(psi)
 
         feature_report[column] = {
-
             "psi": round(float(psi), 4),
-
             "ks_statistic": round(
-                float(ks_statistic),
-                4
+                float(ks_statistic), 4
             ),
-
             "ks_pvalue": round(
-                float(ks_pvalue),
-                4
+                float(ks_pvalue), 4
             ),
-
             "drift_status": severity,
-
-            "drift_detected": (
-                severity != "No Drift"
-            ),
-
-            "recommendation": recommendation
-
+            "drift_detected": severity != "No Drift",
+            "recommendation": get_recommendation(
+                psi, ks_pvalue
+            )
         }
-
-    drifted_features = sum(
-
-        1
-
-        for feature in feature_report.values()
-
-        if feature["drift_detected"]
-
-    )
 
     total_features = len(feature_report)
 
+    drifted_features = sum(
+        feature["drift_detected"]
+        for feature in feature_report.values()
+    )
+
     health_score = round(
-
-        (
-            (total_features - drifted_features)
-
-            / total_features
-        ) * 100,
-
+        100 * (total_features - drifted_features)
+        / total_features,
         2
-
     )
 
     if drifted_features == 0:
-
         overall_status = "Healthy"
-
     elif drifted_features <= 2:
-
         overall_status = "Low Drift"
-
     elif drifted_features <= 5:
-
         overall_status = "Moderate Drift"
-
     else:
-
         overall_status = "High Drift"
 
-    report = {
+    average_psi = round(
+        sum(
+            feature["psi"]
+            for feature in feature_report.values()
+        ) / total_features,
+        4
+    )
 
+    minimum_pvalue = min(
+        feature["ks_pvalue"]
+        for feature in feature_report.values()
+    )
+
+    # Actual Evidently results
+    evidently = load_evidently_results()
+
+    decision = make_decision(
+        overall_status,
+        minimum_pvalue,
+        evidently["dataset_drift"],
+        evidently["drift_percentage"]
+    )
+
+    return {
         "summary": {
-
             "overall_status": overall_status,
-
             "health_score": health_score,
-
             "total_features": total_features,
-
-            "drifted_features": drifted_features
-
+            "drifted_features": drifted_features,
+            "average_psi": average_psi,
+            "minimum_ks_pvalue": minimum_pvalue,
+            "evidently_dataset_drift": evidently[
+                "dataset_drift"
+            ],
+            "evidently_drift_percentage": evidently[
+                "drift_percentage"
+            ],
+            "evidently_drifted_features": evidently[
+                "drifted_features"
+            ],
+            "decision": decision["decision"],
+            "confidence": decision["confidence"],
+            "recommended_action": decision["action"]
         },
-
         "feature_drift": feature_report
-
     }
-
-    return report
-
 
 def save_report(report):
 
@@ -209,29 +250,25 @@ def save_report(report):
 if __name__ == "__main__":
 
     baseline = load_baseline()
-
     production = load_latest_batch()
 
-    drift_report = detect_drift(
-
+    # Generate fresh Evidently results first
+    evidently_report_path = generate_report(
         baseline,
-
         production
-
     )
 
-    # print(json.dumps(drift_report, indent=4))
+    # Then combine custom metrics and Evidently
+    drift_report = detect_drift(
+        baseline,
+        production
+    )
 
-    evidently_report_path = generate_report(
-    baseline,
-    production
-)
-    saved_path = save_report(
-        drift_report
-)
-    print()
-    print("==============================")
+    saved_path = save_report(drift_report)
+
+    print("\n==============================")
     print("Drift Detection Completed")
     print("==============================")
     print(f"Statistical Report : {saved_path}")
     print(f"Evidently Report   : {evidently_report_path}")
+    print("Decision            :", drift_report["summary"]["decision"])

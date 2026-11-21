@@ -21,3 +21,39 @@ data/production/*.csv
 data/processed/*.csv
 
 .DS_Store
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Local configuration
+.vscode/
+.idea/
+
+# Generated data and reports
+data/api_staging/
+data/production/
+artifacts/pipeline_runs/
+artifacts/api_drift/
+artifacts/api_features/
+artifacts/shap/
+artifacts/health_reports/
+artifacts/evidently/
+artifacts/drift_reports/
+
+# Large model files
+*.pkl
+*.joblib
+
+# Logs
+*.log

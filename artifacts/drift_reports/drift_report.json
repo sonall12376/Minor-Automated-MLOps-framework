@@ -3,7 +3,15 @@
         "overall_status": "Healthy",
         "health_score": 100.0,
         "total_features": 9,
-        "drifted_features": 0
+        "drifted_features": 0,
+        "average_psi": 0.0012,
+        "minimum_ks_pvalue": 0.14,
+        "evidently_dataset_drift": false,
+        "evidently_drift_percentage": 0.0,
+        "evidently_drifted_features": 0,
+        "decision": "Healthy",
+        "confidence": "High",
+        "recommended_action": "No Action Required"
     },
     "feature_drift": {
         "avg_temp": {

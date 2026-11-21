@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import json
 import pandas as pd
 
 from evidently import Report
@@ -47,31 +48,63 @@ def load_latest_batch():
     return pd.read_csv(files[-1])
 
 
-def generate_report(
-    baseline,
-    production
-):
+def generate_report(baseline, production):
 
     report = Report(
-
         metrics=[
             DataDriftPreset()
         ]
-
     )
 
+    # Use the same features as our custom PSI/KS detector
+    
+    numerical_columns = baseline.select_dtypes(
+    include=["int64", "float64"]
+    ).columns
+    
+    numerical_columns = [
+        col for col in numerical_columns
+        if col != "RainTomorrow"
+]
+    reference_features = baseline[numerical_columns].copy()
+    current_features = production[numerical_columns].copy()
+    
     snapshot = report.run(
-        reference_data=baseline,
-        current_data=production
-
+        reference_data=reference_features,
+        current_data=current_features
 )
-    output_path = (
+
+    html_path = (
         REPORT_PATH
         / "drift_report.html"
-)
-    snapshot.save_html(
-        str(output_path)
-)
-    return output_path
+    )
 
+    json_path = (
+        REPORT_PATH
+        / "evidently_results.json"
+    )
+
+    # Save HTML report
+    snapshot.save_html(
+        str(html_path)
+    )
+
+    # Extract machine-readable results
+    results = snapshot.dict()
+
+    # Save JSON report
+    with open(
+        json_path,
+        "w",
+        encoding="utf-8"
+    ) as file:
+
+        json.dump(
+            results,
+            file,
+            indent=4,
+            default=str
+        )
+
+    return html_path
 
